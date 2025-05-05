@@ -12,7 +12,9 @@ from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFa
                           DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
                           ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent,
                           SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent,
-                          StartCountrySearchEvent, CountrySearchResultEvent, Country)
+                          StartCountrySearchEvent, CountrySearchResultEvent, Country, LoadCountryEvent,
+                          CountryLoadedEvent, SaveNewCountryEvent, CountrySavedEvent, SaveCountryFailedEvent,
+                          SaveCountryEvent, StartRegionSearchEvent, RegionSearchResultEvent)
 
 
 
@@ -33,7 +35,11 @@ class Engine:
                           LoadContinentEvent: self._handle_load_continent,
                           SaveNewContinentEvent: self._handle_save_new_continent,
                           SaveContinentEvent: self._handle_save_continent,
-                          StartCountrySearchEvent: self._handle_search_country}
+                          StartCountrySearchEvent: self._handle_search_country,
+                          LoadCountryEvent: self._handle_load_country,
+                          SaveNewCountryEvent: self._handle_save_new_country,
+                          SaveCountryEvent: self._handle_save_country,
+                          StartRegionSearchEvent: self._handle_search_region}
 
 
     def process_event(self, event):
@@ -199,6 +205,68 @@ class Engine:
         except Exception as e:
             # update this.
             return
+
+    def _handle_load_country(self, event):
+        country_id = event.country_id()
+        cursor = self._connection.cursor()
+        query = '''
+                SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
+                FROM country
+                WHERE country_id = ?
+                '''
+
+        cursor.execute(query, [country_id])
+        row = cursor.fetchone()
+        if row:
+            country = Country(*row)
+            yield CountryLoadedEvent(country)
+
+        # Implement Error Event
+
+    def _handle_save_new_country(self, event):
+        try:
+            country = event.country()
+            cursor = self._connection.cursor()
+            query = '''
+                INSERT INTO country (country_id, country_code, name, continent_id, wikipedia_link, keywords) 
+                VALUES (?, ?, ?, ?, ?, ?)
+                '''
+            cursor.execute(query,
+                           [country.country_id,
+                            country.country_code,
+                            country.name,
+                            country.continent_id,
+                            country.wikipedia_link,
+                            country.keywords if country.keywords else None])
+            self._connection.commit()
+            yield CountrySavedEvent(country)
+        except Exception as e:
+            yield SaveCountryFailedEvent(
+                f"Could not save new country because of an error - {e}")
+
+    def _handle_save_country(self, event):
+        try:
+            country = event.country()
+            cursor = self._connection.cursor()
+            query = '''
+                    UPDATE country 
+                    SET name = ?, country_code = ?, continent_id = ?, wikipedia_link = ?, keywords = ?
+                    WHERE country_id = ?
+                    '''
+            cursor.execute(query,
+                           [country.name,
+                            country.country_code,
+                            country.continent_id,
+                            country.wikipedia_link,
+                            country.keywords if country.keywords else None,
+                            country.country_id])
+            self._connection.commit()
+            yield CountrySavedEvent(country)
+        except Exception as e:
+            yield SaveCountryFailedEvent(f"Could not update country because of an error - {e}")
+
+    def _handle_search_region(self, event):
+        pass
 
     def _handle_unrecognized(self, event):
         yield from ()
