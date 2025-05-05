@@ -14,7 +14,9 @@ from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFa
                           SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent,
                           StartCountrySearchEvent, CountrySearchResultEvent, Country, LoadCountryEvent,
                           CountryLoadedEvent, SaveNewCountryEvent, CountrySavedEvent, SaveCountryFailedEvent,
-                          SaveCountryEvent, StartRegionSearchEvent, RegionSearchResultEvent)
+                          SaveCountryEvent, StartRegionSearchEvent, RegionSearchResultEvent, Region,
+                          LoadRegionEvent, RegionLoadedEvent, SaveNewRegionEvent, RegionSavedEvent,
+                          SaveRegionFailedEvent, SaveRegionEvent)
 
 
 
@@ -39,7 +41,10 @@ class Engine:
                           LoadCountryEvent: self._handle_load_country,
                           SaveNewCountryEvent: self._handle_save_new_country,
                           SaveCountryEvent: self._handle_save_country,
-                          StartRegionSearchEvent: self._handle_search_region}
+                          StartRegionSearchEvent: self._handle_search_region,
+                          LoadRegionEvent: self._handle_load_region,
+                          SaveNewRegionEvent: self._handle_save_new_region,
+                          SaveRegionEvent: self._handle_save_region}
 
 
     def process_event(self, event):
@@ -266,7 +271,111 @@ class Engine:
             yield SaveCountryFailedEvent(f"Could not update country because of an error - {e}")
 
     def _handle_search_region(self, event):
-        pass
+        if self._connection is None:
+            return
+
+        try:
+            input_region_code = (event.region_code() or '').strip()
+            input_local_code = (event.local_code() or '').strip()
+            input_name = (event.name() or '').strip()
+
+            if not input_region_code and not input_local_code  and not input_name:
+                # Possibly raise exception.
+                return
+
+            query = '''
+                SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
+                FROM region
+                WHERE TRUE
+            '''
+
+            params = []
+            if input_region_code:
+                query += ' AND region_code = ? '
+                params.append(input_region_code)
+
+            if input_local_code:
+                query += ' AND local_code = ? '
+                params.append(input_local_code)
+
+            if input_name:
+                query += ' AND name = ? '
+                params.append(input_name)
+
+            cursor = self._connection.cursor()
+            cursor.execute(query, params)
+
+            for row in cursor.fetchall():
+                region = Region(*row)
+                yield RegionSearchResultEvent(region)
+
+        except Exception as e:
+            # update this.
+            return
+
+    def _handle_load_region(self, event):
+        region_id = event.region_id()
+        cursor = self._connection.cursor()
+        query = '''
+                SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
+                FROM region
+                WHERE region_id = ?
+                '''
+
+        cursor.execute(query, [region_id])
+        row = cursor.fetchone()
+        if row:
+            region = Region(*row)
+            yield RegionLoadedEvent(region)
+
+        # Implement Error Event
+
+    def _handle_save_new_region(self, event):
+        try:
+            region = event.region()
+            cursor = self._connection.cursor()
+            query = '''
+                INSERT INTO region (region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                '''
+            cursor.execute(query,
+                           [region.region_id,
+                            region.region_code,
+                            region.local_code,
+                            region.name,
+                            region.continent_id,
+                            region.country_id,
+                            region.wikipedia_link,
+                            region.keywords if region.keywords else None])
+            self._connection.commit()
+            yield RegionSavedEvent(region)
+        except Exception as e:
+            yield SaveRegionFailedEvent(
+                f"Could not save new region because of an error - {e}")
+
+    def _handle_save_region(self, event):
+        try:
+            region = event.region()
+            cursor = self._connection.cursor()
+            query = '''
+                    UPDATE region 
+                    SET region_code = ?, local_code = ?, name = ?, continent_id = ?, country_id = ?, wikipedia_link = ?, keywords = ?
+                    WHERE region_id = ?
+                    '''
+
+            cursor.execute(query,
+                           [region.region_code,
+                            region.local_code,
+                            region.name,
+                            region.continent_id,
+                            region.country_id,
+                            region.wikipedia_link if region.wikipedia_link else None,
+                            region.keywords if region.keywords else None,
+                            region.region_id])
+            self._connection.commit()
+            yield RegionSavedEvent(region)
+        except Exception as e:
+            yield SaveRegionFailedEvent(f"Could not update region because of an error - {e}")
 
     def _handle_unrecognized(self, event):
-        yield from ()
+            yield from ()
