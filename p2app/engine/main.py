@@ -10,7 +10,7 @@
 import sqlite3
 from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent,
                           DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
-                          ContinentSearchResultEvent, Continent, LoadContinentEvent)
+                          ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent)
 
 
 
@@ -110,6 +110,21 @@ class Engine:
         except Exception as e:
             # update this.
             return
+
+    def _handle_load_continent(self, event):
+        continent_id = event.continent_id()
+        cursor = self._connection.cursor()
+        query = '''
+        SELECT continent_id, continent_code, name
+        FROM continent
+        WHERE continent_id = ?
+        '''
+
+        cursor.execute(query, [continent_id])
+        row = cursor.fetchone()
+        if row:
+            continent = Continent(*row)
+            yield ContinentLoadedEvent(continent)
 
     def _handle_unrecognized(self, event):
         yield from ()
