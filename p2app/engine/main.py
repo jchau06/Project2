@@ -10,7 +10,8 @@
 import sqlite3
 from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent,
                           DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
-                          ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent)
+                          ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent,
+                          SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent)
 
 
 
@@ -28,7 +29,9 @@ class Engine:
                           CloseDatabaseEvent: self._handle_close_database,
                           QuitInitiatedEvent: self._handle_quit_application,
                           StartContinentSearchEvent: self._handle_search_continent,
-                          LoadContinentEvent: self._handle_load_continent}
+                          LoadContinentEvent: self._handle_load_continent,
+                          SaveNewContinentEvent: self._handle_save_new_continent,
+                          SaveContinentEvent: self._handle_save_continent}
 
 
     def process_event(self, event):
@@ -125,6 +128,35 @@ class Engine:
         if row:
             continent = Continent(*row)
             yield ContinentLoadedEvent(continent)
+
+    def _handle_save_new_continent(self, event):
+        try:
+            continent = event.continent()
+            cursor = self._connection.cursor()
+            query = '''
+            INSERT INTO continent (continent_id, continent_code, name) VALUES (?, ?, ?)
+            '''
+            cursor.execute(query, [continent.continent_id, continent.continent_code, continent.name])
+            self._connection.commit()
+            yield ContinentSavedEvent(continent)
+        except Exception as e:
+            yield SaveContinentFailedEvent(f"Could not save new continent because of an error - {e}")
+
+    def _handle_save_continent(self, event):
+        try:
+            continent = event.continent()
+            cursor = self._connection.cursor()
+            query = '''
+                    UPDATE continent 
+                    SET name = ?, continent_code = ? 
+                    WHERE continent_id = ?
+                    '''
+            cursor.execute(query,
+                           [continent.name, continent.continent_code, continent.continent_id])
+            self._connection.commit()
+            yield ContinentSavedEvent(continent)
+        except Exception as e:
+            yield SaveContinentFailedEvent(f"Could not update continent because of an error - {e}")
 
     def _handle_unrecognized(self, event):
         yield from ()
