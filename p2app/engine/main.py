@@ -11,7 +11,8 @@ import sqlite3
 from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent,
                           DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
                           ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent,
-                          SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent)
+                          SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent,
+                          StartCountrySearchEvent, CountrySearchResultEvent, Country)
 
 
 
@@ -31,7 +32,8 @@ class Engine:
                           StartContinentSearchEvent: self._handle_search_continent,
                           LoadContinentEvent: self._handle_load_continent,
                           SaveNewContinentEvent: self._handle_save_new_continent,
-                          SaveContinentEvent: self._handle_save_continent}
+                          SaveContinentEvent: self._handle_save_continent,
+                          StartCountrySearchEvent: self._handle_search_country}
 
 
     def process_event(self, event):
@@ -129,6 +131,8 @@ class Engine:
             continent = Continent(*row)
             yield ContinentLoadedEvent(continent)
 
+        # Implement Error Event
+
     def _handle_save_new_continent(self, event):
         try:
             continent = event.continent()
@@ -157,6 +161,44 @@ class Engine:
             yield ContinentSavedEvent(continent)
         except Exception as e:
             yield SaveContinentFailedEvent(f"Could not update continent because of an error - {e}")
+
+    def _handle_search_country(self, event):
+        if self._connection is None:
+            return
+
+        try:
+            input_code = (event.country_code() or '').strip()
+            input_name = (event.name() or '').strip()
+
+            if not input_code and not input_name:
+                # Possibly raise exception.
+                return
+
+            query = '''
+                SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
+                FROM country
+                WHERE TRUE
+            '''
+
+            params = []
+            if input_code:
+                query += ' AND country_code = ? '
+                params.append(input_code)
+
+            if input_name:
+                query += ' AND name = ? '
+                params.append(input_name)
+
+            cursor = self._connection.cursor()
+            cursor.execute(query, params)
+
+            for row in cursor.fetchall():
+                country = Country(*row)
+                yield CountrySearchResultEvent(country)
+
+        except Exception as e:
+            # update this.
+            return
 
     def _handle_unrecognized(self, event):
         yield from ()
