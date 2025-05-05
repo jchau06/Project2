@@ -8,7 +8,10 @@
 # This is the outermost layer of the part of the program that you'll need to build,
 # which means that YOU WILL DEFINITELY NEED TO MAKE CHANGES TO THIS FILE.
 import sqlite3
-from p2app.events import OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent, DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent
+from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent,
+                          DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
+                          ContinentSearchResultEvent, Continent, LoadContinentEvent)
+
 
 
 class Engine:
@@ -23,7 +26,9 @@ class Engine:
         self._connection = None
         self._handlers = {OpenDatabaseEvent: self._handle_open_database,
                           CloseDatabaseEvent: self._handle_close_database,
-                          QuitInitiatedEvent: self._handle_quit_application}
+                          QuitInitiatedEvent: self._handle_quit_application,
+                          StartContinentSearchEvent: self._handle_search_continent,
+                          LoadContinentEvent: self._handle_load_continent}
 
 
     def process_event(self, event):
@@ -39,9 +44,25 @@ class Engine:
     def _handle_open_database(self, event):
         try:
             self._connection = sqlite3.connect(event.path())
+
+            # Test if the input file is a valid SQLite database, if simple query fails
+            # yield a user-friendly error.
+            cursor = self._connection.cursor()
+            cursor.execute("PRAGMA schema_version;")
+            cursor.fetchone()
+
             yield DatabaseOpenedEvent(event.path())
+
+        except sqlite3.DatabaseError:
+            if self._connection:
+                self._connection.close()
+                self._connection = None
+            yield DatabaseOpenFailedEvent(f"The file is not a valid SQLite database")
         except Exception as e:
-            yield DatabaseOpenFailedEvent(str(e))
+            if self._connection:
+                self._connection.close()
+                self._connection = None
+            yield DatabaseOpenFailedEvent(f"An unexpected error occurred: {e}")
 
     def _handle_close_database(self, event):
         if self._connection:
@@ -51,6 +72,44 @@ class Engine:
 
     def _handle_quit_application(self, event):
         yield EndApplicationEvent()
+
+    def _handle_search_continent(self, event):
+        if self._connection is None:
+            return
+
+        try:
+            input_code = (event.continent_code() or '').strip()
+            input_name = (event.name() or '').strip()
+
+            if not input_code and not input_name:
+                # Possibly raise exception.
+                return
+
+            query = '''
+                SELECT continent_id, continent_code, name
+                FROM continent
+                WHERE TRUE
+            '''
+
+            params = []
+            if input_code:
+                query += ' AND continent_code = ? '
+                params.append(input_code)
+
+            if input_name:
+                query += ' AND name = ? '
+                params.append(input_name)
+
+            cursor = self._connection.cursor()
+            cursor.execute(query, params)
+
+            for row in cursor.fetchall():
+                continent = Continent(*row)
+                yield ContinentSearchResultEvent(continent)
+
+        except Exception as e:
+            # update this.
+            return
 
     def _handle_unrecognized(self, event):
         yield from ()
