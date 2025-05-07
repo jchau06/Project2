@@ -8,16 +8,7 @@
 # This is the outermost layer of the part of the program that you'll need to build,
 # which means that YOU WILL DEFINITELY NEED TO MAKE CHANGES TO THIS FILE.
 import sqlite3
-from p2app.events import (OpenDatabaseEvent, DatabaseOpenedEvent, DatabaseOpenFailedEvent, CloseDatabaseEvent,
-                          DatabaseClosedEvent, QuitInitiatedEvent, EndApplicationEvent, StartContinentSearchEvent,
-                          ContinentSearchResultEvent, Continent, LoadContinentEvent, ContinentLoadedEvent,
-                          SaveNewContinentEvent, ContinentSavedEvent, SaveContinentFailedEvent, SaveContinentEvent,
-                          StartCountrySearchEvent, CountrySearchResultEvent, Country, LoadCountryEvent,
-                          CountryLoadedEvent, SaveNewCountryEvent, CountrySavedEvent, SaveCountryFailedEvent,
-                          SaveCountryEvent, StartRegionSearchEvent, RegionSearchResultEvent, Region,
-                          LoadRegionEvent, RegionLoadedEvent, SaveNewRegionEvent, RegionSavedEvent,
-                          SaveRegionFailedEvent, SaveRegionEvent)
-
+from p2app import events
 
 
 class Engine:
@@ -30,21 +21,30 @@ class Engine:
     def __init__(self):
         """Initializes the engine"""
         self._connection = None
-        self._handlers = {OpenDatabaseEvent: self._handle_open_database,
-                          CloseDatabaseEvent: self._handle_close_database,
-                          QuitInitiatedEvent: self._handle_quit_application,
-                          StartContinentSearchEvent: self._handle_search_continent,
-                          LoadContinentEvent: self._handle_load_continent,
-                          SaveNewContinentEvent: self._handle_save_new_continent,
-                          SaveContinentEvent: self._handle_save_continent,
-                          StartCountrySearchEvent: self._handle_search_country,
-                          LoadCountryEvent: self._handle_load_country,
-                          SaveNewCountryEvent: self._handle_save_new_country,
-                          SaveCountryEvent: self._handle_save_country,
-                          StartRegionSearchEvent: self._handle_search_region,
-                          LoadRegionEvent: self._handle_load_region,
-                          SaveNewRegionEvent: self._handle_save_new_region,
-                          SaveRegionEvent: self._handle_save_region}
+        self._handlers = {
+            # Application-level functions
+            events.OpenDatabaseEvent: self._handle_open_database,
+            events.CloseDatabaseEvent: self._handle_close_database,
+            events.QuitInitiatedEvent: self._handle_quit_application,
+
+            # Continent-related functions
+            events.StartContinentSearchEvent: self._handle_search_continent,
+            events.LoadContinentEvent: self._handle_load_continent,
+            events.SaveNewContinentEvent: self._handle_save_new_continent,
+            events.SaveContinentEvent: self._handle_save_continent,
+
+            # Country-related functions
+            events.StartCountrySearchEvent: self._handle_search_country,
+            events.LoadCountryEvent: self._handle_load_country,
+            events.SaveNewCountryEvent: self._handle_save_new_country,
+            events.SaveCountryEvent: self._handle_save_country,
+
+            # Region-related functions
+            events.StartRegionSearchEvent: self._handle_search_region,
+            events.LoadRegionEvent: self._handle_load_region,
+            events.SaveNewRegionEvent: self._handle_save_new_region,
+            events.SaveRegionEvent: self._handle_save_region
+        }
 
 
     def process_event(self, event):
@@ -60,34 +60,33 @@ class Engine:
     def _handle_open_database(self, event):
         try:
             self._connection = sqlite3.connect(event.path())
-
             # Test if the input file is a valid SQLite database, if simple query fails
             # yield a user-friendly error.
             cursor = self._connection.cursor()
             cursor.execute("PRAGMA schema_version;")
             cursor.fetchone()
 
-            yield DatabaseOpenedEvent(event.path())
+            yield events.DatabaseOpenedEvent(event.path())
 
         except sqlite3.DatabaseError:
             if self._connection:
                 self._connection.close()
                 self._connection = None
-            yield DatabaseOpenFailedEvent(f"The file is not a valid SQLite database")
+            yield events.DatabaseOpenFailedEvent(f"The file is not a valid SQLite database")
         except Exception as e:
             if self._connection:
                 self._connection.close()
                 self._connection = None
-            yield DatabaseOpenFailedEvent(f"An unexpected error occurred: {e}")
+            yield events.DatabaseOpenFailedEvent(f"An unexpected error occurred: {e}")
 
     def _handle_close_database(self, event):
         if self._connection:
             self._connection.close()
             self._connection = None
-        yield DatabaseClosedEvent()
+        yield events.DatabaseClosedEvent()
 
     def _handle_quit_application(self, event):
-        yield EndApplicationEvent()
+        yield events.EndApplicationEvent()
 
     def _handle_search_continent(self, event):
         if self._connection is None:
@@ -99,13 +98,14 @@ class Engine:
 
             if not input_code and not input_name:
                 # Possibly raise exception.
+                yield events.ErrorEvent(f"No continent code or continent name has been provided.")
                 return
 
             query = '''
-                SELECT continent_id, continent_code, name
-                FROM continent
-                WHERE TRUE
-            '''
+                    SELECT continent_id, continent_code, name
+                    FROM continent
+                    WHERE TRUE
+                    '''
 
             params = []
             if input_code:
@@ -119,43 +119,50 @@ class Engine:
             cursor = self._connection.cursor()
             cursor.execute(query, params)
 
-            for row in cursor.fetchall():
-                continent = Continent(*row)
-                yield ContinentSearchResultEvent(continent)
+            rows = cursor.fetchall()
+            if not rows:
+                yield events.ErrorEvent(f"No continents have been found.")
+                return
+
+            for row in rows:
+                continent = events.Continent(*row)
+                yield events.ContinentSearchResultEvent(continent)
 
         except Exception as e:
-            # update this.
+            yield events.ErrorEvent(f"Cannot search continent due to an unexpected error - {e}")
             return
 
     def _handle_load_continent(self, event):
-        continent_id = event.continent_id()
-        cursor = self._connection.cursor()
-        query = '''
-        SELECT continent_id, continent_code, name
-        FROM continent
-        WHERE continent_id = ?
-        '''
+        try:
+            continent_id = event.continent_id()
+            cursor = self._connection.cursor()
+            query = '''
+                    SELECT continent_id, continent_code, name
+                    FROM continent
+                    WHERE continent_id = ?
+                    '''
 
-        cursor.execute(query, [continent_id])
-        row = cursor.fetchone()
-        if row:
-            continent = Continent(*row)
-            yield ContinentLoadedEvent(continent)
+            cursor.execute(query, [continent_id])
+            row = cursor.fetchone()
+            if row:
+                continent = events.Continent(*row)
+                yield events.ContinentLoadedEvent(continent)
+        except Exception as e:
+            yield events.ErrorEvent(f"Failed to load continent due to an unexpected error - {e}")
 
-        # Implement Error Event
 
     def _handle_save_new_continent(self, event):
         try:
             continent = event.continent()
             cursor = self._connection.cursor()
             query = '''
-            INSERT INTO continent (continent_id, continent_code, name) VALUES (?, ?, ?)
-            '''
+                    INSERT INTO continent (continent_id, continent_code, name) VALUES (?, ?, ?)
+                    '''
             cursor.execute(query, [continent.continent_id, continent.continent_code, continent.name])
             self._connection.commit()
-            yield ContinentSavedEvent(continent)
+            yield events.ContinentSavedEvent(continent)
         except Exception as e:
-            yield SaveContinentFailedEvent(f"Could not save new continent because of an error - {e}")
+            yield events.SaveContinentFailedEvent(f"Could not save new continent because of an error - {e}")
 
     def _handle_save_continent(self, event):
         try:
@@ -169,9 +176,9 @@ class Engine:
             cursor.execute(query,
                            [continent.name, continent.continent_code, continent.continent_id])
             self._connection.commit()
-            yield ContinentSavedEvent(continent)
+            yield events.ContinentSavedEvent(continent)
         except Exception as e:
-            yield SaveContinentFailedEvent(f"Could not update continent because of an error - {e}")
+            yield events.SaveContinentFailedEvent(f"Could not update continent because of an error - {e}")
 
     def _handle_search_country(self, event):
         if self._connection is None:
@@ -182,14 +189,14 @@ class Engine:
             input_name = (event.name() or '').strip()
 
             if not input_code and not input_name:
-                # Possibly raise exception.
+                yield events.ErrorEvent(f"No country code or country name has been provided.")
                 return
 
             query = '''
-                SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
-                FROM country
-                WHERE TRUE
-            '''
+                    SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
+                    FROM country
+                    WHERE TRUE
+                    '''
 
             params = []
             if input_code:
@@ -202,40 +209,46 @@ class Engine:
 
             cursor = self._connection.cursor()
             cursor.execute(query, params)
+            rows = cursor.fetchall()
+            if not rows:
+                yield events.ErrorEvent(f"No countries have been found.")
+                return
 
-            for row in cursor.fetchall():
-                country = Country(*row)
-                yield CountrySearchResultEvent(country)
+            for row in rows:
+                country = events.Country(*row)
+                yield events.CountrySearchResultEvent(country)
 
         except Exception as e:
-            # update this.
+            yield events.ErrorEvent(f"Failed to search country due to an unexpected error - {e}")
             return
 
     def _handle_load_country(self, event):
-        country_id = event.country_id()
-        cursor = self._connection.cursor()
-        query = '''
-                SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
-                FROM country
-                WHERE country_id = ?
-                '''
+        try:
+            country_id = event.country_id()
+            cursor = self._connection.cursor()
+            query = '''
+                    SELECT country_id, country_code, name, continent_id, wikipedia_link, keywords
+                    FROM country
+                    WHERE country_id = ?
+                    '''
 
-        cursor.execute(query, [country_id])
-        row = cursor.fetchone()
-        if row:
-            country = Country(*row)
-            yield CountryLoadedEvent(country)
+            cursor.execute(query, [country_id])
+            row = cursor.fetchone()
+            if row:
+                country = events.Country(*row)
+                yield events.CountryLoadedEvent(country)
+        except Exception as e:
+            yield events.ErrorEvent(f"Failed to load country due to an unexpected error - {e}")
 
-        # Implement Error Event
 
     def _handle_save_new_country(self, event):
         try:
             country = event.country()
             cursor = self._connection.cursor()
             query = '''
-                INSERT INTO country (country_id, country_code, name, continent_id, wikipedia_link, keywords) 
-                VALUES (?, ?, ?, ?, ?, ?)
-                '''
+                    INSERT INTO country (country_id, country_code, name, continent_id, wikipedia_link, keywords) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    '''
             cursor.execute(query,
                            [country.country_id,
                             country.country_code,
@@ -244,9 +257,9 @@ class Engine:
                             country.wikipedia_link,
                             country.keywords if country.keywords else None])
             self._connection.commit()
-            yield CountrySavedEvent(country)
+            yield events.CountrySavedEvent(country)
         except Exception as e:
-            yield SaveCountryFailedEvent(
+            yield events.SaveCountryFailedEvent(
                 f"Could not save new country because of an error - {e}")
 
     def _handle_save_country(self, event):
@@ -266,9 +279,9 @@ class Engine:
                             country.keywords if country.keywords else None,
                             country.country_id])
             self._connection.commit()
-            yield CountrySavedEvent(country)
+            yield events.CountrySavedEvent(country)
         except Exception as e:
-            yield SaveCountryFailedEvent(f"Could not update country because of an error - {e}")
+            yield events.SaveCountryFailedEvent(f"Could not update country because of an error - {e}")
 
     def _handle_search_region(self, event):
         if self._connection is None:
@@ -280,14 +293,14 @@ class Engine:
             input_name = (event.name() or '').strip()
 
             if not input_region_code and not input_local_code  and not input_name:
-                # Possibly raise exception.
+                yield events.ErrorEvent(f"No region code, local code, or region name has been provided.")
                 return
 
             query = '''
-                SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
-                FROM region
-                WHERE TRUE
-            '''
+                    SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
+                    FROM region
+                    WHERE TRUE
+                    '''
 
             params = []
             if input_region_code:
@@ -304,40 +317,46 @@ class Engine:
 
             cursor = self._connection.cursor()
             cursor.execute(query, params)
+            rows = cursor.fetchall()
+            if not rows:
+                yield events.ErrorEvent(f"No regions have been found.")
+                return
 
-            for row in cursor.fetchall():
-                region = Region(*row)
-                yield RegionSearchResultEvent(region)
+            for row in rows:
+                region = events.Region(*row)
+                yield events.RegionSearchResultEvent(region)
 
         except Exception as e:
-            # update this.
+            yield events.ErrorEvent(f"Failed to search region due to an unexpected error - {e}")
             return
 
     def _handle_load_region(self, event):
-        region_id = event.region_id()
-        cursor = self._connection.cursor()
-        query = '''
-                SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
-                FROM region
-                WHERE region_id = ?
-                '''
+        try:
+            region_id = event.region_id()
+            cursor = self._connection.cursor()
+            query = '''
+                    SELECT region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords
+                    FROM region
+                    WHERE region_id = ?
+                    '''
 
-        cursor.execute(query, [region_id])
-        row = cursor.fetchone()
-        if row:
-            region = Region(*row)
-            yield RegionLoadedEvent(region)
+            cursor.execute(query, [region_id])
+            row = cursor.fetchone()
+            if row:
+                region = events.Region(*row)
+                yield events.RegionLoadedEvent(region)
+        except Exception as e:
+            yield events.ErrorEvent(f"Failed to load region due to an unexpected error - {e}")
 
-        # Implement Error Event
 
     def _handle_save_new_region(self, event):
         try:
             region = event.region()
             cursor = self._connection.cursor()
             query = '''
-                INSERT INTO region (region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                '''
+                    INSERT INTO region (region_id, region_code, local_code, name, continent_id, country_id, wikipedia_link, keywords) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    '''
             cursor.execute(query,
                            [region.region_id,
                             region.region_code,
@@ -348,9 +367,9 @@ class Engine:
                             region.wikipedia_link,
                             region.keywords if region.keywords else None])
             self._connection.commit()
-            yield RegionSavedEvent(region)
+            yield events.RegionSavedEvent(region)
         except Exception as e:
-            yield SaveRegionFailedEvent(
+            yield events.SaveRegionFailedEvent(
                 f"Could not save new region because of an error - {e}")
 
     def _handle_save_region(self, event):
@@ -373,9 +392,9 @@ class Engine:
                             region.keywords if region.keywords else None,
                             region.region_id])
             self._connection.commit()
-            yield RegionSavedEvent(region)
+            yield events.RegionSavedEvent(region)
         except Exception as e:
-            yield SaveRegionFailedEvent(f"Could not update region because of an error - {e}")
+            yield events.SaveRegionFailedEvent(f"Could not update region because of an error - {e}")
 
     def _handle_unrecognized(self, event):
             yield from ()
