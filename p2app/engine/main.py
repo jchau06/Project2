@@ -64,6 +64,7 @@ class Engine:
             # yield a user-friendly error.
             cursor = self._connection.cursor()
             cursor.execute("PRAGMA schema_version;")
+            cursor.execute("PRAGMA foreign_keys = ON;")
             cursor.fetchone()
 
             yield events.DatabaseOpenedEvent(event.path())
