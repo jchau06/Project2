@@ -19,7 +19,12 @@ class Engine:
     """
 
     def __init__(self):
-        """Initializes the engine"""
+        """
+        Initializes the engine. Contains the engine's connection to the database
+        and a dictionary of events as keys and functions as values. The dictionary
+        is processed by process_event to call the associated function when engine receives
+        an event.
+        """
         self._connection = None
         self._handlers = {
             # Application-level functions
@@ -49,7 +54,9 @@ class Engine:
 
     def process_event(self, event):
         """A generator function that processes one event sent from the user interface,
-        yielding zero or more events in response."""
+        yielding zero or more events in response. The function receives events, searches
+        through self._handlers, then yields the associated function.
+        """
 
         # This is a way to write a generator function that always yields zero values.
         # You'll want to remove this and replace it with your own code, once you start
@@ -58,13 +65,16 @@ class Engine:
         yield from handler(event)
 
     def _handle_open_database(self, event):
+        """
+        Handles opening the database and returns DatabaseOpenFailedEvent if user's file is not a database.
+        """
         try:
             self._connection = sqlite3.connect(event.path())
             # Test if the input file is a valid SQLite database, if simple query fails
             # yield a user-friendly error.
             cursor = self._connection.cursor()
-            cursor.execute("PRAGMA schema_version;")
             cursor.execute("PRAGMA foreign_keys = ON;")
+            cursor.execute("PRAGMA schema_version;")
             cursor.fetchone()
 
             yield events.DatabaseOpenedEvent(event.path())
@@ -81,15 +91,26 @@ class Engine:
             yield events.DatabaseOpenFailedEvent(f"An unexpected error occurred: {e}")
 
     def _handle_close_database(self, event):
+        """
+        Closes the database connection and yields DatabaseClosedEvent.
+        """
         if self._connection:
             self._connection.close()
             self._connection = None
         yield events.DatabaseClosedEvent()
 
     def _handle_quit_application(self, event):
+        """
+        Quits application by yielding EndApplicationEvent.
+        """
         yield events.EndApplicationEvent()
 
     def _handle_search_continent(self, event):
+        """
+        Performs a SQLite query to search the airport database by continent code or name.
+        Returns found continents to the UI by yielding ContinentSearchResultEvent.
+        Yields a customized ErrorEvent for specific errors.
+        """
         if self._connection is None:
             return
 
@@ -134,6 +155,11 @@ class Engine:
             return
 
     def _handle_load_continent(self, event):
+        """
+        Performs a SQLite query to load the details of a continent when a user wants
+        to edit a continent by yielding ContinentLoadedEvent.
+        Yields a customized ErrorEvent if any errors occur.
+        """
         try:
             continent_id = event.continent_id()
             cursor = self._connection.cursor()
@@ -153,6 +179,11 @@ class Engine:
 
 
     def _handle_save_new_continent(self, event):
+        """
+        Performs a SQLite query to save a new row when a user wants
+        to add a continent to the table 'continent' by yielding ContinentSavedEvent.
+        Yields SaveContinentFailedEvent if saving to the database fails..
+        """
         try:
             continent = event.continent()
             cursor = self._connection.cursor()
@@ -166,6 +197,11 @@ class Engine:
             yield events.SaveContinentFailedEvent(f"Could not save new continent because of an error - {e}")
 
     def _handle_save_continent(self, event):
+        """
+        Performs a SQLite query to update an existing row in 'continent'
+        by yielding ContinentSavedEvent.
+        Yields SaveContinentFailedEvent if saving to the database fails.
+        """
         try:
             continent = event.continent()
             cursor = self._connection.cursor()
@@ -182,6 +218,11 @@ class Engine:
             yield events.SaveContinentFailedEvent(f"Could not update continent because of an error - {e}")
 
     def _handle_search_country(self, event):
+        """
+        Performs a SQLite query to search the airport database by country code or name.
+        Returns found continents to the UI by yielding CountrySearchResultEvent.
+        Yields a customized ErrorEvent for specific errors.
+        """
         if self._connection is None:
             return
 
@@ -224,6 +265,11 @@ class Engine:
             return
 
     def _handle_load_country(self, event):
+        """
+        Performs a SQLite query to load the details of a continent when a user wants
+        to edit a country by yielding CountryLoadedEvent.
+        Yields a customized ErrorEvent if any errors occur.
+        """
         try:
             country_id = event.country_id()
             cursor = self._connection.cursor()
@@ -243,6 +289,11 @@ class Engine:
 
 
     def _handle_save_new_country(self, event):
+        """
+        Performs a SQLite query to save a new row when a user wants
+        to add a country to the table 'country' by yielding CountrySavedEvent.
+        Yields SaveCountryFailedEvent if saving to the database fails.
+        """
         try:
             country = event.country()
             cursor = self._connection.cursor()
@@ -264,6 +315,11 @@ class Engine:
                 f"Could not save new country because of an error - {e}")
 
     def _handle_save_country(self, event):
+        """
+        Performs a SQLite query to update an existing row in 'country'
+        by yielding CountrySavedEvent.
+        Yields SaveCountryFailedEvent if saving to the database fails.
+        """
         try:
             country = event.country()
             cursor = self._connection.cursor()
@@ -285,6 +341,12 @@ class Engine:
             yield events.SaveCountryFailedEvent(f"Could not update country because of an error - {e}")
 
     def _handle_search_region(self, event):
+        """
+        Performs a SQLite query to search the airport database
+        by region code, local code or name.
+        Returns found continents to the UI by yielding RegionSearchResultEvent.
+        Yields a customized ErrorEvent for specific errors.
+        """
         if self._connection is None:
             return
 
@@ -332,6 +394,11 @@ class Engine:
             return
 
     def _handle_load_region(self, event):
+        """
+        Performs a SQLite query to load the details of a region when a user wants
+        to edit a region by yielding RegionLoadedEvent.
+        Yields a customized ErrorEvent if any errors occur.
+        """
         try:
             region_id = event.region_id()
             cursor = self._connection.cursor()
@@ -351,6 +418,11 @@ class Engine:
 
 
     def _handle_save_new_region(self, event):
+        """
+        Performs a SQLite query to save a new row when a user wants
+        to add a region to the table 'region' by yielding RegionSavedEvent.
+        Yields SaveRegionFailedEvent if saving to the database fails.
+        """
         try:
             region = event.region()
             cursor = self._connection.cursor()
@@ -374,6 +446,11 @@ class Engine:
                 f"Could not save new region because of an error - {e}")
 
     def _handle_save_region(self, event):
+        """
+        Performs a SQLite query to update an existing row in 'region'
+        by yielding RegionSavedEvent.
+        Yields SaveRegionFailedEvent if saving to the database fails.
+        """
         try:
             region = event.region()
             cursor = self._connection.cursor()
@@ -398,4 +475,8 @@ class Engine:
             yield events.SaveRegionFailedEvent(f"Could not update region because of an error - {e}")
 
     def _handle_unrecognized(self, event):
-            yield from ()
+        """
+        Called if the engine receives an unrecognized event. Yields a customized
+        ErrorEvent that communicates this to the user.
+        """
+        yield events.ErrorEvent("Received an unrecognized event.")
