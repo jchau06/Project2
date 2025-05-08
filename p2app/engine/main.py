@@ -72,7 +72,7 @@ class Engine:
             if self._connection:
                 self._connection.close()
                 self._connection = None
-            yield events.DatabaseOpenFailedEvent(f"The file is not a valid SQLite database")
+            yield events.DatabaseOpenFailedEvent(f"The file is not a valid SQLite database.")
         except Exception as e:
             if self._connection:
                 self._connection.close()
